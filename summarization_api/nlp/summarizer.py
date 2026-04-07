@@ -1,67 +1,26 @@
-import os
-import torch
-from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+from transformers import BartTokenizer, BartForConditionalGeneration
 
-
-class Summarizer:
-    def __init__(self):
-        BASE_DIR = os.path.dirname(os.path.dirname(__file__))
-        model_path = os.path.join(BASE_DIR, "models", "fine_tuned")
-
-        print("🔄 Loading model...")
-        print("📁 Path:", model_path)
-
-        if not os.path.exists(model_path):
-            raise Exception("❌ Model not found!")
-
-        self.tokenizer = AutoTokenizer.from_pretrained(model_path)
-        self.model = AutoModelForSeq2SeqLM.from_pretrained(model_path)
-
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model.to(self.device)
-
-        print("✅ Model loaded!")
+class BartSummarizer:
+    def __init__(self, model_path="models/fine_tuned"):
+        self.tokenizer = BartTokenizer.from_pretrained(model_path)
+        self.model = BartForConditionalGeneration.from_pretrained(model_path)
 
     def summarize(self, text):
-        if not text.strip():
-            return "No content."
+        inputs = self.tokenizer(
+            text,
+            return_tensors="pt",
+            max_length=1024,
+            truncation=True
+        )
 
-        chunks = self.split_text(text)
-        summaries = []
+        summary_ids = self.model.generate(
+            inputs["input_ids"],
+            max_length=120,
+            min_length=40,
+            num_beams=6,
+            length_penalty=1.2,
+            no_repeat_ngram_size=3,
+            early_stopping=True
+        )
 
-        for chunk in chunks:
-            inputs = self.tokenizer(
-                chunk,
-                return_tensors="pt",
-                truncation=True,
-                max_length=512
-            ).to(self.device)
-
-            with torch.no_grad():
-                output = self.model.generate(
-                    inputs["input_ids"],
-                    max_length=150,
-                    min_length=40,
-                    num_beams=4,
-                    no_repeat_ngram_size=3
-                )
-
-            summary = self.tokenizer.decode(output[0], skip_special_tokens=True)
-            summaries.append(summary)
-
-        final = " ".join(summaries)
-
-        # fix câu dở
-        if not final.endswith("."):
-            last_dot = final.rfind(".")
-            if last_dot != -1:
-                final = final[:last_dot + 1]
-
-        return final
-
-    def split_text(self, text, max_words=150):
-        words = text.split()
-        return [
-            " ".join(words[i:i + max_words])
-            for i in range(0, len(words), max_words)
-        ]
+        return self.tokenizer.decode(summary_ids[0], skip_special_tokens=True)
